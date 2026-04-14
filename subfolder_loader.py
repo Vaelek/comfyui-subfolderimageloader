@@ -80,11 +80,11 @@ class SubfolderImageLoader:
         return {
             "required": {
                 "subfolder": (subfolders, {
-                    "default": subfolders[0] if subfolders else "",
+                    "default": None,
                     "tooltip": "Select a subfolder from your input directory. Leave empty for root folder. The image list will update automatically when you change this."
                 }),
                 "image": (default_images if default_images else [""], {
-                    "default": default_images[0] if default_images else "",
+                    "default": None,
                     "image_upload": True,
                     "tooltip": "Choose an image from the selected subfolder. This list is filtered based on your subfolder selection."
                 }),
@@ -100,58 +100,58 @@ class SubfolderImageLoader:
     @classmethod 
     def get_images_for_subfolder(cls, subfolder: str = "") -> list:
         """Get filtered images for a specific subfolder."""
-        input_dir = folder_paths.get_input_directory()
-        all_images = cls.get_all_images_with_paths(input_dir)
-        
-        if not subfolder or subfolder == "":
-            # Root folder - show only images without subfolder (no slash)
-            return [img for img in all_images if '/' not in img]
-        else:
-            # Specific subfolder - show images WITH subfolder prefix for ComfyUI compatibility
-            prefix = subfolder + "/"
-            filtered = [img for img in all_images 
-                       if img.startswith(prefix) and '/' not in img[len(prefix):]]
-            return filtered
+        all_images = cls.get_all_images_with_paths(folder_paths.get_input_directory())
+
+        if not subfolder:
+            # Only images in root (no slash)
+            return [img for img in all_images if "/" not in img]
+
+        prefix = subfolder.rstrip("/") + "/"
+        return [
+            img for img in all_images
+            if img.startswith(prefix) and "/" not in img[len(prefix):]
+        ]
     
     @classmethod
     def get_subfolders(cls, base_path: str) -> List[str]:
         """Get list of subfolders in the base directory."""
+        subfolders = [""]
+
         if not os.path.exists(base_path):
-            return [""]
-        
-        subfolders = [""]  # Include root/no subfolder option
-        
-        try:
-            for item in sorted(os.listdir(base_path)):
-                item_path = os.path.join(base_path, item)
-                if os.path.isdir(item_path) and not item.startswith('.'):
-                    subfolders.append(item)
-        except PermissionError:
-            logging.warning(f"Permission denied accessing {base_path}")
-        
-        return subfolders
+            return subfolders
+
+        for root, dirs, _ in os.walk(base_path):
+            dirs[:] = [d for d in dirs if not d.startswith('.')]
+            rel_root = os.path.relpath(root, base_path)
+            if rel_root != ".":
+                subfolders.append(rel_root)
+
+        return sorted(subfolders)
     
     @classmethod
     def get_all_images_with_paths(cls, base_path: str) -> List[str]:
         """Get all images with their relative paths."""
         all_images = []
-        
+        valid_extensions = {'.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tiff', '.tif', '.gif'}
+
         if not os.path.exists(base_path):
             return all_images
-        
-        # Get images from root
-        root_images = cls.get_images_from_folder(base_path)
-        all_images.extend(root_images)
-        
-        # Get images from each subfolder with path prefix
-        for subfolder in cls.get_subfolders(base_path):
-            if subfolder:  # Skip empty root option
-                subfolder_path = os.path.join(base_path, subfolder)
-                images = cls.get_images_from_folder(subfolder_path)
-                # Add with subfolder prefix
-                for img in images:
-                    all_images.append(f"{subfolder}/{img}")
-        
+
+        for root, dirs, files in os.walk(base_path):
+            # Skip hidden folders
+            dirs[:] = [d for d in dirs if not d.startswith('.')]
+
+            rel_root = os.path.relpath(root, base_path)
+            rel_root = "" if rel_root == "." else rel_root
+
+            for file in files:
+                ext = os.path.splitext(file.lower())[1]
+                if ext in valid_extensions:
+                    if rel_root:
+                        all_images.append(f"{rel_root}/{file}")
+                    else:
+                        all_images.append(file)
+
         return sorted(all_images)
     
     @classmethod
@@ -185,13 +185,9 @@ class SubfolderImageLoader:
         actual_subfolder = subfolder
         
         # If image contains a path separator, extract the subfolder and filename
-        if '/' in image:
-            parts = image.split('/')
-            if len(parts) == 2:
-                potential_subfolder, clean_image = parts
-                # Use the subfolder from the image path if no subfolder is explicitly set
-                if not actual_subfolder:
-                    actual_subfolder = potential_subfolder
+        if "/" in image:
+            parts = image.split("/", 1)
+            actual_subfolder, clean_image = parts
         
         # Build the full path
         if actual_subfolder:
@@ -227,17 +223,20 @@ class SubfolderImageLoader:
         try:
             input_dir = folder_paths.get_input_directory()
             
-            # Build path
+            # If image contains subfolder path
+            if "/" in image:
+                subfolder, image = image.split("/", 1)
+
             if subfolder:
                 file_path = os.path.join(input_dir, subfolder, image)
             else:
                 file_path = os.path.join(input_dir, image)
-            
+
             if os.path.exists(file_path):
                 return os.path.getmtime(file_path)
         except Exception:
             pass
-        
+
         return False
     
     RETURN_TYPES = ("IMAGE", "MASK", "STRING", "INT", "INT")

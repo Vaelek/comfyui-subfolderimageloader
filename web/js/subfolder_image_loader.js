@@ -123,6 +123,12 @@ app.registerExtension({
                         this._updatingImageList = false;
                         return;
                     }
+
+                    // Try to preserve the current image selection
+                    const previousValue =
+                        imageWidget.value ??
+                        this.properties?.image ??
+                        "";
                     
                     // Fetch updated image list from the backend
                     const response = await fetch("/subfolder_loader/refresh", {
@@ -162,8 +168,15 @@ app.registerExtension({
                         // Remove the old widget
                         this.widgets.splice(imageIndex, 1);
                         
-                        // Determine the new value - always use first image from filtered list
-                        const newValue = filteredImages.length > 0 ? filteredImages[0] : "";
+                        // Determine the new value:
+                        // 1. If previous value is still valid, keep it
+                        // 2. Otherwise, fall back to first filtered image
+                        let newValue = "";
+                        if (previousValue && filteredImages.includes(previousValue)) {
+                            newValue = previousValue;
+                        } else if (filteredImages.length > 0) {
+                            newValue = filteredImages[0];
+                        }
                         
                         // Create new widget with updated options
                         const newWidget = this.addWidget(
@@ -186,6 +199,9 @@ app.registerExtension({
                                 image_upload: true
                             }
                         );
+
+                        // Ensure widget and node property reflect the preserved value
+                        newWidget.value = newValue;
                         
                         // Move the new widget to the correct position
                         if (imageIndex < this.widgets.length - 1) {
