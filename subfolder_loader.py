@@ -114,17 +114,34 @@ class SubfolderImageLoader:
     
     @classmethod
     def get_subfolders(cls, base_path: str) -> List[str]:
-        """Get list of subfolders in the base directory."""
+        """Return only subfolders that contain at least one image anywhere inside them."""
+        valid_extensions = {'.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tiff', '.tif'}
         subfolders = [""]
 
         if not os.path.exists(base_path):
             return subfolders
 
-        for root, dirs, _ in os.walk(base_path):
+        for root, dirs, files in os.walk(base_path):
+            # Skip hidden folders
             dirs[:] = [d for d in dirs if not d.startswith('.')]
-            rel_root = os.path.relpath(root, base_path)
-            if rel_root != ".":
-                subfolders.append(rel_root)
+
+            # Check if this folder or any descendant contains an image
+            contains_image = any(
+                os.path.splitext(f.lower())[1] in valid_extensions
+                for f in files
+            )
+
+            # If this folder has no images, check descendants
+            if not contains_image:
+                for droot, _, dfiles in os.walk(root):
+                    if any(os.path.splitext(f.lower())[1] in valid_extensions for f in dfiles):
+                        contains_image = True
+                        break
+
+            if contains_image:
+                rel_root = os.path.relpath(root, base_path)
+                if rel_root != ".":
+                    subfolders.append(rel_root)
 
         return sorted(subfolders)
     
